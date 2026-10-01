@@ -1,0 +1,9 @@
+/build
+/build*
+/cmake-build*
+.cache
+.clangd
+.idea
+.vscode
+.DS_Store
+/*.wav

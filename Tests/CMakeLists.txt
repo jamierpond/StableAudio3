@@ -14,7 +14,7 @@ nano_add_executable(SA3ShaderGoldenTests
         TARGETS eacp-sa3-codec eacp-sa3-dit eacp-sa3-text-encoder)
 
 target_include_directories(SA3ShaderGoldenTests PRIVATE
-        ${PROJECT_SOURCE_DIR}/Tests/GPU)
+        ${eacp_SOURCE_DIR}/Tests/GPU)
 
 target_compile_definitions(SA3ShaderGoldenTests PRIVATE
         SA3_SHADER_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/ShaderGolden")
