@@ -6,6 +6,7 @@
 #include <eacp/Network/OnlineResource/OnlineResource.h>
 
 #include <cstdio>
+#include <filesystem>
 
 namespace eacp::SA3Checkpoints
 {
@@ -41,19 +42,40 @@ void printProgress(const std::string& name, const OnlineResource::Progress& prog
                      megabytes(progress.bytesReceived),
                      megabytes(progress.totalBytes));
 }
-} // namespace
 
-FilePath directory(const Repo& repo)
+FilePath relativeDirectory(const Repo& repo)
 {
     auto folder = repo.id;
     folder.replace(folder.find('/'), 1, "--");
 
+    return FilePath {"huggingface"} / folder / repo.revision;
+}
+
+FilePath bundled(const Repo& repo, const std::string& pathInRepo)
+{
+    auto resources = Files::resourcesDirectory();
+
+    if (resources.empty())
+        return {};
+
+    auto path = resources / relativeDirectory(repo).str() / pathInRepo;
+    auto error = std::error_code {};
+
+    return std::filesystem::is_regular_file(path.str(), error) ? path : FilePath {};
+}
+} // namespace
+
+FilePath directory(const Repo& repo)
+{
     return FilePath::appSupportDirectory("", "StableAudio3") / "Resources"
-           / "huggingface" / folder / repo.revision;
+           / relativeDirectory(repo).str();
 }
 
 FilePath fetch(const Repo& repo, const std::string& pathInRepo)
 {
+    if (auto inBundle = bundled(repo, pathInRepo); !inBundle.empty())
+        return inBundle;
+
     auto options = OnlineResource::Options {};
     options.info.name = repo.id + "/" + pathInRepo;
     options.info.url = "https://huggingface.co/" + repo.id + "/resolve/"

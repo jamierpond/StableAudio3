@@ -25,6 +25,8 @@ inline const auto sameL =
 // <app support>/StableAudio3/Resources/huggingface/<owner>--<name>/<revision>
 FilePath directory(const Repo& repo);
 
-// Blocking; prints progress to stderr. Throws when the file could not be had.
+// The copy shipped in the app's resources under huggingface/<owner>--<name>/
+// <revision>, as on iOS, when there is one. Otherwise blocking; prints progress
+// to stderr. Throws when the file could not be had.
 FilePath fetch(const Repo& repo, const std::string& pathInRepo);
 } // namespace eacp::SA3Checkpoints
