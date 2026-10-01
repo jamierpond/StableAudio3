@@ -1,23 +1,13 @@
-#include "Checkpoints.h"
-
-#include <eacp/Core/Utils/FilePath.h>
 #include <eacp/GPU/Device/Device.h>
 #include <eacp/GPU/Frame/ComputePass.h>
 #include <eacp/GPU/Timing/CallCost.h>
-#include <eacp/ML/Loader/SafetensorsFile.h>
-#include <Codec/SA3Codec.h>
 #include <Codec/WavFile.h>
-#include <DiT/SA3DiT.h>
-#include <DiT/Weights.h>
-#include <Sampler/Sampler.h>
-#include <TextEncoder/SA3TextEncoder.h>
-#include <TextEncoder/Tokenizer/BpeTokenizer.h>
+#include <Pipeline/Pipeline.h>
 
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <future>
 #include <optional>
 #include <string>
 
@@ -27,9 +17,6 @@ using namespace eacp::ML;
 
 namespace
 {
-constexpr auto sampleRate = 44100;
-constexpr auto downsamplingRatio = 4096;
-
 struct Options
 {
     std::string prompt = "lofi house loop";
@@ -136,11 +123,6 @@ void printStepProfile(const SA3DiT::Weights& weights,
 
     std::printf("\n");
 }
-
-int latentLengthFor(int sampleCount)
-{
-    return (sampleCount + downsamplingRatio - 1) / downsamplingRatio;
-}
 } // namespace
 
 int main(int argc, char** argv)
@@ -156,17 +138,11 @@ int main(int argc, char** argv)
 
     auto isMedium = options.model == "medium";
     auto& repo = isMedium ? SA3Checkpoints::medium : SA3Checkpoints::smallMusic;
-    auto modelFile = FilePath {};
-    auto tokenizerFile = FilePath {};
-    auto textEncoderFile = FilePath {};
+    auto files = SA3Pipeline::CheckpointFiles {};
 
     try
     {
-        modelFile = SA3Checkpoints::fetch(repo, "model.safetensors");
-        tokenizerFile =
-            SA3Checkpoints::fetch(repo, "t5gemma-b-b-ul2/tokenizer.json");
-        textEncoderFile =
-            SA3Checkpoints::fetch(repo, "t5gemma-b-b-ul2/model.safetensors");
+        files = SA3Pipeline::fetchCheckpoints(repo);
     }
     catch (const std::exception& error)
     {
@@ -185,120 +161,46 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    auto ditConfig =
-        isMedium ? SA3DiT::DiTConfig::medium() : SA3DiT::DiTConfig::smallMusic();
-    auto codecConfig =
-        isMedium ? SA3Codec::CodecConfig::sameL() : SA3Codec::CodecConfig::sameS();
+    auto model = SA3Pipeline::load(files, options.model, device);
+
+    if (model == nullptr)
+        return 1;
+
+    auto request = SA3Pipeline::Request {};
+    request.prompt = options.prompt;
+    request.seconds = options.seconds;
+    request.seed = options.seed;
+    request.samplerSteps = options.samplerSteps;
+    request.releaseAsItGoes = options.repeat == 0;
+
+    if (options.profile)
+        request.afterSampling = [&](const SA3DiT::Weights& weights,
+                                    const Tensor& crossAttnContext,
+                                    int latentLength)
+        {
+            printStepProfile(weights,
+                             crossAttnContext,
+                             latentLength,
+                             options.seconds,
+                             options.seed,
+                             device);
+        };
+
+    auto waveform = SA3Pipeline::generate(*model, request, device);
 
     auto start = Clock::now();
 
-    // Started before the weights rather than after them. Parsing the 33 MB
-    // vocabulary is the largest single piece of the text encoder's load and
-    // touches no device, so it runs on a thread of its own while the DiT
-    // weights come off the disk and onto the GPU, and is waited for below.
-    auto tokenizer =
-        std::async(std::launch::async,
-                   [path = tokenizerFile.str()]
-                   { return SA3TextEncoder::BpeTokenizer::load(path); });
-
-    auto file = SafetensorsFile::open(modelFile);
-
-    if (!file.has_value())
-    {
-        std::fprintf(
-            stderr, "Could not open checkpoint at %s\n", modelFile.str().c_str());
-        return 1;
-    }
-
-    std::printf("Loading DiT weights (%s)...\n", options.model.c_str());
-    start = Clock::now();
-    auto weights = std::optional {SA3DiT::loadWeights(*file, ditConfig, device)};
-    std::printf("DiT weights took %.2fs\n", secondsSince(start));
-
-    std::printf("Loading SAME decoder...\n");
-    start = Clock::now();
-    auto decoder = SA3Codec::SameDecoder::loadFromSafetensors(
-        *file, codecConfig, "pretransform.model", device);
-    std::printf("Decoder took %.2fs\n", secondsSince(start));
-
-    std::printf("Loading T5Gemma text encoder...\n");
-    start = Clock::now();
-    auto textEncoder = SA3TextEncoder::SA3TextEncoderModel::load(
-        tokenizer.get(), textEncoderFile.str(), *file, device);
-
-    if (!textEncoder.has_value())
-    {
-        std::fprintf(stderr, "Could not load the text encoder.\n");
-        return 1;
-    }
-
-    std::printf("Text encoder took %.2fs\n", secondsSince(start));
-
-    std::printf("Encoding prompt: \"%s\"\n", options.prompt.c_str());
-    start = Clock::now();
-
-    auto promptCommands = device.makeCommandBuffer();
-    auto promptEncoding = std::optional<SA3TextEncoder::PromptEncoding> {};
-
-    {
-        auto pass = promptCommands.beginCompute();
-        promptEncoding = textEncoder->encodePrompt(pass, options.prompt, device);
-    }
-
-    promptCommands.commit();
-    if (options.repeat == 0)
-        textEncoder.reset();
-    std::printf("Prompt encoding took %.2fs\n", secondsSince(start));
-
-    auto sampleCount = (int) std::lround((double) options.seconds * sampleRate);
-    auto latentLength = latentLengthFor(sampleCount);
-
-    std::printf("Sampling %d steps over %d latent frames (%.2fs)...\n",
-                options.samplerSteps,
-                latentLength,
-                options.seconds);
-
-    start = Clock::now();
-
-    auto latent =
-        SA3Sampler::pingpongSample(*weights,
-                                   promptEncoding->embeddings,
-                                   latentLength,
-                                   options.seconds,
-                                   options.samplerSteps,
-                                   SA3Sampler::randomNoiseSource(options.seed),
-                                   device);
-
-    std::printf("Sampling took %.2fs\n", secondsSince(start));
-
-    if (options.profile)
-        printStepProfile(*weights,
-                         promptEncoding->embeddings,
-                         latentLength,
-                         options.seconds,
-                         options.seed,
-                         device);
-
-    if (options.repeat == 0)
-    {
-        weights.reset();
-        promptEncoding.reset();
-    }
-
-    std::printf("Decoding audio...\n");
-    start = Clock::now();
-    auto waveform = decoder.decode(latent, sampleCount, device);
-    std::printf("Decoding took %.2fs\n", secondsSince(start));
-
-    start = Clock::now();
-
-    if (!SA3Codec::writeWavFile(options.output, waveform, sampleRate))
+    if (!SA3Codec::writeWavFile(options.output, waveform, SA3Pipeline::sampleRate))
     {
         std::fprintf(stderr, "Could not write %s\n", options.output.c_str());
         return 1;
     }
 
     std::printf("WAV write took %.2fs\n", secondsSince(start));
+
+    auto sampleCount =
+        (int) std::lround((double) options.seconds * SA3Pipeline::sampleRate);
+    auto latentLength = SA3Pipeline::latentLengthFor(sampleCount);
 
     // Generating again in the same process, which is what a server, a
     // plugin or a UI does and what a one-shot run cannot show: the first
@@ -314,13 +216,14 @@ int main(int argc, char** argv)
 
         {
             auto pass = repeatCommands.beginCompute();
-            repeatEncoding = textEncoder->encodePrompt(pass, options.prompt, device);
+            repeatEncoding =
+                model->textEncoder->encodePrompt(pass, options.prompt, device);
         }
 
         repeatCommands.commit();
 
         auto repeatLatent =
-            SA3Sampler::pingpongSample(*weights,
+            SA3Sampler::pingpongSample(*model->weights,
                                        repeatEncoding->embeddings,
                                        latentLength,
                                        options.seconds,
@@ -328,7 +231,8 @@ int main(int argc, char** argv)
                                        SA3Sampler::randomNoiseSource(options.seed),
                                        device);
 
-        auto repeatWaveform = decoder.decode(repeatLatent, sampleCount, device);
+        auto repeatWaveform =
+            model->decoder->decode(repeatLatent, sampleCount, device);
         std::printf("Generating again took %.3fs\n", secondsSince(repeatStart));
     }
     std::printf("Wrote %s\n", options.output.c_str());
@@ -336,7 +240,7 @@ int main(int argc, char** argv)
 
     if (options.profile)
     {
-        auto counts = file->loadCounts();
+        auto counts = model->file->loadCounts();
         std::printf("Checkpoint tensors: %d in place, %d copied, %d converted\n",
                     counts.inPlace,
                     counts.copied,
