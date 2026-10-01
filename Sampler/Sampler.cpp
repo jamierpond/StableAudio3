@@ -31,19 +31,23 @@ NoiseSource randomNoiseSource(std::uint64_t seed)
 
 namespace
 {
-Tensor uploadNoise(const NoiseSource& noiseSource, int rows, int columns, Device& device)
+Tensor uploadNoise(const NoiseSource& noiseSource,
+                   int rows,
+                   int columns,
+                   Device& device)
 {
     auto values = noiseSource(rows * columns);
     return Tensor::fromHostF32(values.data(), {rows, columns}, device);
 }
-}
+} // namespace
 
 Tensor pingpongSampleWithModel(const ModelForward& model,
                                int latentRows,
                                int latentColumns,
                                int steps,
                                const NoiseSource& noiseSource,
-                               Device& device)
+                               Device& device,
+                               const StepCallback& onStep)
 {
     auto x = uploadNoise(noiseSource, latentRows, latentColumns, device);
 
@@ -65,6 +69,7 @@ Tensor pingpongSampleWithModel(const ModelForward& model,
         }
 
         commands.commit();
+        onStep(i + 1, steps);
     }
 
     return x;
@@ -76,7 +81,8 @@ Tensor pingpongSample(const SA3DiT::Weights& weights,
                       float secondsTotal,
                       int steps,
                       const NoiseSource& noiseSource,
-                      Device& device)
+                      Device& device,
+                      const StepCallback& onStep)
 {
     auto prompt = SA3DiT::preparePrompt(weights, crossAttnContext, device);
 
@@ -87,6 +93,6 @@ Tensor pingpongSample(const SA3DiT::Weights& weights,
     };
 
     return pingpongSampleWithModel(
-        model, latentLength, SA3DiT::ioChannels, steps, noiseSource, device);
+        model, latentLength, SA3DiT::ioChannels, steps, noiseSource, device, onStep);
 }
-}
+} // namespace eacp::SA3Sampler
