@@ -11,7 +11,7 @@ add_subdirectory(Sampler)
 nano_add_executable(SA3ShaderGoldenTests
         SOURCES
             ShaderGoldenTests.cpp
-        TARGETS eacp-sa3-codec eacp-sa3-dit eacp-sa3-text-encoder)
+        TARGETS eacp-sa3-codec eacp-sa3-dit eacp-sa3-sampler eacp-sa3-text-encoder)
 
 target_include_directories(SA3ShaderGoldenTests PRIVATE
         ${eacp_SOURCE_DIR}/Tests/GPU)

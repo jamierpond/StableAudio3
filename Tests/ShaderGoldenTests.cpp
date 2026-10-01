@@ -4,6 +4,7 @@
 #include <Codec/GpuOps.h>
 #include <Codec/SoftNormBottleneck.h>
 #include <DiT/Ops.h>
+#include <Sampler/Probe.h>
 #include <TextEncoder/Encoder/GemmaAttention.h>
 #include <TextEncoder/SA3TextEncoder.h>
 
@@ -36,6 +37,9 @@ std::vector<Entry> appShaders()
         {"SA3DiT/SigmoidGateKernel", program<SA3DiT::SigmoidGateKernel>()},
         {"SA3DiT/ExpoFourierFeaturesKernel",
          program<SA3DiT::ExpoFourierFeaturesKernel>()},
+        {"SA3Sampler/MeanSquareColumnsKernel",
+         program<SA3Sampler::MeanSquareColumnsKernel>()},
+        {"SA3Sampler/MeanOfRunsKernel", program<SA3Sampler::MeanOfRunsKernel>()},
         {"SA3TextEncoder/GemmaAttentionScoresKernel",
          program<SA3TextEncoder::GemmaAttentionScoresKernel>()},
         {"SA3TextEncoder/PadRowSelectKernel",

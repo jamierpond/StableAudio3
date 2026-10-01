@@ -392,7 +392,8 @@ Tensor forward(ComputePass& pass,
                float timestep,
                float secondsTotal,
                const Prompt& prompt,
-               Device& device)
+               Device& device,
+               const BlockObserver& afterBlock)
 {
     auto& config = weights.config;
     auto latentLength = latent.rows();
@@ -407,6 +408,7 @@ Tensor forward(ComputePass& pass,
     auto globalCondBase = globalConditioning(pass, weights, timestep, secondsTotal, device);
 
     for (auto layer = std::size_t {0}; layer < weights.layers.size(); ++layer)
+    {
         seq = transformerBlock(pass,
                                config,
                                weights.layers[layer],
@@ -416,6 +418,8 @@ Tensor forward(ComputePass& pass,
                                prompt.layers[layer],
                                false,
                                device);
+        afterBlock(pass, (int) layer, seq);
+    }
 
     auto latentOut = sliceRows(pass, seq, config.numMemoryTokens, latentLength, device);
     auto projOut = linear(pass, latentOut, weights.projectOutWeight, nullptr, device);

@@ -47,7 +47,8 @@ Tensor pingpongSampleWithModel(const ModelForward& model,
                                int steps,
                                const NoiseSource& noiseSource,
                                Device& device,
-                               const StepCallback& onStep)
+                               const StepCallback& onStep,
+                               const StepProbe& probe)
 {
     auto x = uploadNoise(noiseSource, latentRows, latentColumns, device);
 
@@ -57,6 +58,7 @@ Tensor pingpongSampleWithModel(const ModelForward& model,
         auto tNext = 1.f - (float) (i + 1) / (float) steps;
 
         auto noise = uploadNoise(noiseSource, latentRows, latentColumns, device);
+        probe.beforeStep(i, tCurr);
         auto commands = device.makeCommandBuffer();
 
         {
@@ -66,6 +68,7 @@ Tensor pingpongSampleWithModel(const ModelForward& model,
             auto denoised = scaleAndAdd(pass, x, 1.f, velocity, -tCurr, device);
 
             x = scaleAndAdd(pass, denoised, 1.f - tNext, noise, tNext, device);
+            probe.afterStep(pass, {denoised, x, i, tCurr, tNext});
         }
 
         commands.commit();
@@ -82,17 +85,30 @@ Tensor pingpongSample(const SA3DiT::Weights& weights,
                       int steps,
                       const NoiseSource& noiseSource,
                       Device& device,
-                      const StepCallback& onStep)
+                      const StepCallback& onStep,
+                      const StepProbe& probe)
 {
     auto prompt = SA3DiT::preparePrompt(weights, crossAttnContext, device);
 
     auto model = [&](ComputePass& pass, const Tensor& x, float timestep)
     {
-        return SA3DiT::forward(
-            pass, weights, x, timestep, secondsTotal, prompt, device);
+        return SA3DiT::forward(pass,
+                               weights,
+                               x,
+                               timestep,
+                               secondsTotal,
+                               prompt,
+                               device,
+                               probe.afterBlock);
     };
 
-    return pingpongSampleWithModel(
-        model, latentLength, SA3DiT::ioChannels, steps, noiseSource, device, onStep);
+    return pingpongSampleWithModel(model,
+                                   latentLength,
+                                   SA3DiT::ioChannels,
+                                   steps,
+                                   noiseSource,
+                                   device,
+                                   onStep,
+                                   probe);
 }
 } // namespace eacp::SA3Sampler

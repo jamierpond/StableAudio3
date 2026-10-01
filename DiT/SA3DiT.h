@@ -8,6 +8,7 @@
 #include <eacp/GPU/Frame/ComputePass.h>
 #include <eacp/ML/Tensor/Tensor.h>
 
+#include <functional>
 #include <optional>
 #include <vector>
 
@@ -76,13 +77,22 @@ ML::Tensor transformerBlock(GPU::ComputePass& pass,
                             bool applyLocalConditioning = false,
                             GPU::Device& device = GPU::Device::shared());
 
-ML::Tensor forward(GPU::ComputePass& pass,
-                   const Weights& weights,
-                   const ML::Tensor& latent,
-                   float timestep,
-                   float secondsTotal,
-                   const Prompt& prompt,
-                   GPU::Device& device = GPU::Device::shared());
+// Called while forward() records, after each transformer block, with the
+// block's index and its output. Whatever it records lands in the same pass,
+// after that block and before the next; it changes nothing forward() computes.
+using BlockObserver =
+    std::function<void(GPU::ComputePass& pass, int block, const ML::Tensor& hidden)>;
+
+ML::Tensor forward(
+    GPU::ComputePass& pass,
+    const Weights& weights,
+    const ML::Tensor& latent,
+    float timestep,
+    float secondsTotal,
+    const Prompt& prompt,
+    GPU::Device& device = GPU::Device::shared(),
+    const BlockObserver& afterBlock =
+        [](GPU::ComputePass&, int, const ML::Tensor&) {});
 
 // forward() with the prompt prepared in the same pass: one step's worth of
 // work more than the form above, for a caller that runs one step.
@@ -96,4 +106,4 @@ ML::Tensor forward(GPU::ComputePass& pass,
 
 // Every kernel a forward pass dispatches, for a caller to build ahead of the
 // first step.
-}
+} // namespace eacp::SA3DiT
