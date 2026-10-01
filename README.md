@@ -57,6 +57,38 @@ Files land at
 A pinned commit never changes, so once a file is there the network is not
 touched again.
 
+## iOS
+
+`iOS/` is a small app, `StableAudio3iOS`, that runs the small model on the
+phone: type a prompt, tap Generate, and it samples 8 s at 8 steps, plays the
+result and draws its waveform over a shader backdrop. It is built only when
+configuring for iOS; the CI flags are eacp's:
+
+```bash
+cmake -G Xcode -B build-ios-sim -DCMAKE_SYSTEM_NAME=iOS \
+      -DCMAKE_OSX_SYSROOT=iphonesimulator -DCMAKE_OSX_ARCHITECTURES=arm64 \
+      -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO -DEACP_UNITY_BUILD=OFF
+cmake --build build-ios-sim --config Release --target StableAudio3iOS \
+      -- -sdk iphonesimulator
+
+xcrun simctl boot "iPhone 17 Pro"
+xcrun simctl install booted \
+      build-ios-sim/iOS/Release-iphonesimulator/StableAudio3iOS.app
+xcrun simctl launch --console-pty booted ai.tamber.stableaudio3
+```
+
+The checkpoint ships inside the bundle, so the app is 3.2 GB. The build copies
+the three files from this Mac's download cache into
+`StableAudio3iOS.app/huggingface/stabilityai--stable-audio-3-small-music/<revision>/`,
+the same layout as the cache, and `SA3Checkpoints::fetch` takes a file from the
+app's resources before it fetches anything. Configure fails, naming the path,
+until the cache has them: run `build/StableAudio3 --model small --fetch-only`
+first, or point `SA3_SMALL_CHECKPOINT_DIR` at a copy. The copy is `cp -c`, an
+APFS clone, so it costs no time or disk. Never commit the weights.
+
+The app prints the process's `phys_footprint` (what jetsam judges) after each
+stage and shows the latest under the status line.
+
 ## Tests
 
 The SA3 test targets (`SA3Codec*`, `SA3DiT*`, `SA3Sampler*`,
