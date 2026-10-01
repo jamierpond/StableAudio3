@@ -65,6 +65,11 @@ std::string PromptField::getText() const
     return Strings::toStdString(impl->field.get().text);
 }
 
+void PromptField::setText(const std::string& text)
+{
+    impl->field.get().text = Strings::toNSString(text);
+}
+
 void PromptField::setBounds(const Graphics::Rect& bounds)
 {
     impl->field.get().frame = CGRectMake(bounds.x, bounds.y, bounds.w, bounds.h);

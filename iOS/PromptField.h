@@ -17,6 +17,7 @@ public:
     ~PromptField();
 
     std::string getText() const;
+    void setText(const std::string& text);
     void setBounds(const Graphics::Rect& bounds);
     void dismissKeyboard();
 

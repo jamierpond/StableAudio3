@@ -8,6 +8,7 @@
 #include <eacp/Core/App/App.h>
 #include <eacp/Graphics/Graphics.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -34,6 +35,7 @@ struct Layout
     Graphics::Rect status;
     Graphics::Rect settings;
     Graphics::Rect footprint;
+    Graphics::Rect loader;
 };
 
 Layout layoutFor(const Graphics::Rect& bounds,
@@ -57,6 +59,10 @@ Layout layoutFor(const Graphics::Rect& bounds,
     layout.status = {x, y + 168.f, width, 22.f};
     layout.settings = {x, y + 192.f, width, 22.f};
     layout.footprint = {x, y + 216.f, width, 22.f};
+
+    auto loaderTop = y + 250.f;
+    auto loaderBottom = bounds.h - std::max(safeArea.bottom, margin);
+    layout.loader = {x, loaderTop, width, std::max(loaderBottom - loaderTop, 0.f)};
     return layout;
 }
 
@@ -73,17 +79,31 @@ std::string describe(const SA3Pipeline::Request& request)
     return line;
 }
 
-// SA3_AUTORUN="steps=4 seed=7 seconds=8 told=4 random=1" opens the Expert
+// SA3_AUTORUN="prompt=dark_drone steps=4 seed=7 seconds=8 told=4 random=1"
+// sets the prompt (underscores for spaces) and opens the Expert
 // panel with those values at launch and generates once the model is ready:
 // how the simulator run is driven, which has no way to tap.
-std::optional<ExpertSettings> autorunSettings()
+std::string spacedOut(std::string text)
+{
+    std::replace(text.begin(), text.end(), '_', ' ');
+    return text;
+}
+
+struct Autorun
+{
+    std::string prompt;
+    ExpertSettings expert;
+};
+
+std::optional<Autorun> autorunSettings()
 {
     auto* text = std::getenv("SA3_AUTORUN");
 
     if (text == nullptr || *text == 0)
         return {};
 
-    auto settings = ExpertSettings {};
+    auto run = Autorun {};
+    auto& settings = run.expert;
     auto words = std::istringstream {text};
     auto word = std::string {};
 
@@ -97,7 +117,9 @@ std::optional<ExpertSettings> autorunSettings()
         auto key = word.substr(0, equals);
         auto value = word.substr(equals + 1);
 
-        if (key == "steps")
+        if (key == "prompt")
+            run.prompt = spacedOut(value);
+        else if (key == "steps")
             settings.samplerSteps = std::stoi(value);
         else if (key == "seed")
             settings.seed = std::stoull(value);
@@ -112,7 +134,7 @@ std::optional<ExpertSettings> autorunSettings()
         }
     }
 
-    return settings;
+    return run;
 }
 
 std::uint64_t randomSeed()
@@ -310,7 +332,10 @@ struct StableAudioApp
 
         if (autorun.has_value())
         {
-            expert.setSettings(*autorun);
+            expert.setSettings(autorun->expert);
+
+            if (!autorun->prompt.empty())
+                prompt.setText(autorun->prompt);
             expert.setOpen(true);
         }
 
@@ -324,6 +349,7 @@ struct StableAudioApp
         controls.setLayout(layout);
         prompt.setBounds(layout.prompt);
         expert.setFrame(layout.expert.x, layout.expert.y, layout.expert.w);
+        backdrop.setLoaderArea(layout.loader);
     }
 
     void generate()
@@ -409,8 +435,9 @@ struct StableAudioApp
         refreshPlayback();
     }
 
+    ForwardProbe probe;
     Root root;
-    Backdrop backdrop;
+    Backdrop backdrop {probe};
     Controls controls;
     Graphics::Window window {root};
     PromptField prompt {root, "lofi house loop"};
@@ -420,10 +447,10 @@ struct StableAudioApp
     FilePath wav;
     Status latest;
     bool wasEverReady = false;
-    std::optional<ExpertSettings> autorun = autorunSettings();
+    std::optional<Autorun> autorun = autorunSettings();
     Clock::time_point started = Clock::now();
 
-    Generator generator;
+    Generator generator {probe};
     Threads::Timer timer {[this] { tick(); }, 20};
 };
 

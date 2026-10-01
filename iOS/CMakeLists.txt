@@ -2,6 +2,7 @@ add_executable(StableAudio3iOS
         AudioPlayer.mm
         Backdrop.cpp
         ExpertPanel.mm
+        ForwardProbe.mm
         Footprint.cpp
         Generator.cpp
         Main.cpp
@@ -13,6 +14,7 @@ target_link_libraries(StableAudio3iOS PRIVATE
         eacp-gpu
         eacp-graphics
         "-framework AVFoundation"
+        "-framework Metal"
         "-framework UIKit")
 
 set(BUNDLE_ID "ai.tamber.stableaudio3")

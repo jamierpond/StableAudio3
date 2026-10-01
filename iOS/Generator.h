@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ForwardProbe.h"
+
 #include <Pipeline/Pipeline.h>
 
 #include <condition_variable>
@@ -45,7 +47,8 @@ struct Result
 class Generator
 {
 public:
-    Generator();
+    // probe watches every generation's sampling, and outlives the generator.
+    explicit Generator(ForwardProbe& probe);
     ~Generator();
 
     // Ignored while a generation is running.
@@ -64,6 +67,7 @@ private:
     void reportFootprint(Status status, const std::string& label);
     void deliver(Result result);
 
+    ForwardProbe& probe;
     std::mutex mutex;
     std::condition_variable_any wake;
     std::optional<SA3Pipeline::Request> pending;

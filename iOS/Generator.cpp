@@ -51,7 +51,8 @@ Status failure(const std::string& error)
 }
 } // namespace
 
-Generator::Generator()
+Generator::Generator(ForwardProbe& probeToUse)
+    : probe(probeToUse)
 {
     worker = std::jthread {[this](std::stop_token stopToken) { run(stopToken); }};
 }
@@ -140,6 +141,7 @@ void Generator::runRequest(SA3Pipeline::Model& model, SA3Pipeline::Request reque
 {
     auto steps = request.samplerSteps;
 
+    probe.reset();
     report({.stage = Stage::Sampling, .step = 0, .steps = steps});
 
     request.afterEncoding = [this, steps]
@@ -148,12 +150,18 @@ void Generator::runRequest(SA3Pipeline::Model& model, SA3Pipeline::Request reque
                         "after prompt encode");
     };
 
+    request.probe = probe.stepProbe();
+
     request.onStep = [this](int done, int total)
-    { report({.stage = Stage::Sampling, .step = done, .steps = total}); };
+    {
+        probe.stepFinished(done, total);
+        report({.stage = Stage::Sampling, .step = done, .steps = total});
+    };
 
     request.afterSampling =
         [this, steps](const SA3DiT::Weights&, const ML::Tensor&, int)
     {
+        probe.samplingFinished();
         reportFootprint({.stage = Stage::Decoding, .step = steps, .steps = steps},
                         "after sampling");
     };
