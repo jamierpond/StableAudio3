@@ -1,6 +1,7 @@
 add_executable(StableAudio3iOS
         AudioPlayer.mm
         Backdrop.cpp
+        ExpertPanel.mm
         Footprint.cpp
         Generator.cpp
         Main.cpp

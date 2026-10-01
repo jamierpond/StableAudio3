@@ -63,7 +63,26 @@ touched again.
 
 `iOS/` is a small app, `StableAudio3iOS`, that runs the small model on the
 phone: type a prompt, tap Generate, and it samples 8 s at 8 steps, plays the
-result and draws its waveform over a shader backdrop. It is built only when
+result and draws its waveform over a shader backdrop.
+
+**Expert** under the prompt opens every knob the model has: sampler steps
+(1-50), length (1-30 s), the length the model is told (its `seconds_total`
+conditioning, 1-60 s, or the same as the length), and the seed, fixed or
+random. The line under the status shows what the last generation used. There
+is no guidance scale or negative prompt: the model is distilled and the
+ping-pong sampler makes one conditioned DiT pass per step. Its schedule is a
+fixed linear one from 1 to 0, with no `seconds_start` input. Only the small
+model ships, so there is no model choice.
+
+`SA3_AUTORUN` drives it without taps, as the simulator needs: it opens the
+panel with the given values and generates once the model is loaded.
+
+```bash
+SIMCTL_CHILD_SA3_AUTORUN="steps=4 seed=7 seconds=6 told=4" \
+      xcrun simctl launch --console-pty booted ai.tamber.stableaudio3
+```
+
+Keys are `steps`, `seed`, `seconds`, `told` and `random=1`. It is built only when
 configuring for iOS; the CI flags are eacp's:
 
 ```bash

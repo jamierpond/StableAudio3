@@ -1,5 +1,6 @@
 #include "AudioPlayer.h"
 #include "Backdrop.h"
+#include "ExpertPanel.h"
 #include "Generator.h"
 #include "PromptField.h"
 #include "Redraw.h"
@@ -9,14 +10,16 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
+#include <optional>
+#include <random>
+#include <sstream>
 
 using namespace eacp;
 using namespace eacp::SA3App;
 
 namespace
 {
-constexpr auto phoneSeconds = 8.f;
-constexpr auto phoneSamplerSteps = 8;
 constexpr auto margin = 20.f;
 
 using Clock = std::chrono::steady_clock;
@@ -25,13 +28,17 @@ struct Layout
 {
     Graphics::Rect title;
     Graphics::Rect prompt;
+    Graphics::Rect expert;
     Graphics::Rect generate;
     Graphics::Rect play;
     Graphics::Rect status;
+    Graphics::Rect settings;
     Graphics::Rect footprint;
 };
 
-Layout layoutFor(const Graphics::Rect& bounds, const Graphics::Insets& safeArea)
+Layout layoutFor(const Graphics::Rect& bounds,
+                 const Graphics::Insets& safeArea,
+                 float expertHeight)
 {
     auto x = margin + safeArea.left;
     auto width = bounds.w - x - margin - safeArea.right;
@@ -41,12 +48,76 @@ Layout layoutFor(const Graphics::Rect& bounds, const Graphics::Insets& safeArea)
     auto layout = Layout {};
     layout.title = {x, y, width, 34.f};
     layout.prompt = {x, y + 48.f, width, 46.f};
-    layout.generate = {x, y + 108.f, generateWidth, 52.f};
+    layout.expert = {x, y + 100.f, width, expertHeight};
+
+    y += expertHeight + 10.f;
+    layout.generate = {x, y + 100.f, generateWidth, 52.f};
     layout.play = {
-        x + generateWidth + 12.f, y + 108.f, width - generateWidth - 12.f, 52.f};
-    layout.status = {x, y + 176.f, width, 22.f};
-    layout.footprint = {x, y + 200.f, width, 22.f};
+        x + generateWidth + 12.f, y + 100.f, width - generateWidth - 12.f, 52.f};
+    layout.status = {x, y + 168.f, width, 22.f};
+    layout.settings = {x, y + 192.f, width, 22.f};
+    layout.footprint = {x, y + 216.f, width, 22.f};
     return layout;
+}
+
+std::string describe(const SA3Pipeline::Request& request)
+{
+    char line[160];
+    std::snprintf(line,
+                  sizeof(line),
+                  "%.1fs  %d steps  seed %llu  told %.1fs",
+                  request.seconds,
+                  request.samplerSteps,
+                  (unsigned long long) request.seed,
+                  request.secondsTotal());
+    return line;
+}
+
+// SA3_AUTORUN="steps=4 seed=7 seconds=8 told=4 random=1" opens the Expert
+// panel with those values at launch and generates once the model is ready:
+// how the simulator run is driven, which has no way to tap.
+std::optional<ExpertSettings> autorunSettings()
+{
+    auto* text = std::getenv("SA3_AUTORUN");
+
+    if (text == nullptr)
+        return {};
+
+    auto settings = ExpertSettings {};
+    auto words = std::istringstream {text};
+    auto word = std::string {};
+
+    while (words >> word)
+    {
+        auto equals = word.find('=');
+
+        if (equals == std::string::npos)
+            continue;
+
+        auto key = word.substr(0, equals);
+        auto value = word.substr(equals + 1);
+
+        if (key == "steps")
+            settings.samplerSteps = std::stoi(value);
+        else if (key == "seed")
+            settings.seed = std::stoull(value);
+        else if (key == "seconds")
+            settings.seconds = std::stof(value);
+        else if (key == "random")
+            settings.randomSeed = value == "1";
+        else if (key == "told")
+        {
+            settings.conditioningMatchesLength = false;
+            settings.conditioningSeconds = std::stof(value);
+        }
+    }
+
+    return settings;
+}
+
+std::uint64_t randomSeed()
+{
+    return std::random_device {}() % 1000000000u;
 }
 
 std::string describe(const Status& status, double seconds)
@@ -108,6 +179,12 @@ public:
         redraw(*this);
     }
 
+    void setSettings(const std::string& line)
+    {
+        settings = line;
+        redraw(*this);
+    }
+
     void setGenerateEnabled(bool enabled)
     {
         generateEnabled = enabled;
@@ -131,6 +208,8 @@ public:
 
         g.setColor({1.f, 1.f, 1.f, 0.85f});
         g.drawText(status, baseline(layout.status, smallFont), smallFont);
+        g.setColor({1.f, 0.82f, 0.6f, 0.75f});
+        g.drawText(settings, baseline(layout.settings, smallFont), smallFont);
         g.setColor({1.f, 1.f, 1.f, 0.55f});
         g.drawText(footprint, baseline(layout.footprint, smallFont), smallFont);
     }
@@ -178,6 +257,7 @@ private:
 
     Layout layout;
     std::string status;
+    std::string settings;
     std::string footprint;
     std::string playLabel = "Play";
     bool generateEnabled = false;
@@ -217,30 +297,52 @@ struct StableAudioApp
         root.onLayout = [this] { layOut(); };
         controls.onGenerate = [this] { generate(); };
         controls.onPlay = [this] { togglePlayback(); };
-        controls.onBackgroundTap = [this] { prompt.dismissKeyboard(); };
+        controls.onBackgroundTap = [this]
+        {
+            prompt.dismissKeyboard();
+            expert.dismissKeyboard();
+        };
+        expert.onToggled = [this] { layOut(); };
         prompt.onSubmit = [this] { generate(); };
 
         generator.onStatus = [this](const Status& status) { show(status); };
         generator.onResult = [this](const Result& result) { finished(result); };
+
+        if (autorun.has_value())
+        {
+            expert.setSettings(*autorun);
+            expert.setOpen(true);
+        }
 
         layOut();
     }
 
     void layOut()
     {
-        auto layout = layoutFor(root.getLocalBounds(), root.getSafeAreaInsets());
+        auto layout = layoutFor(
+            root.getLocalBounds(), root.getSafeAreaInsets(), expert.height());
         controls.setLayout(layout);
         prompt.setBounds(layout.prompt);
+        expert.setFrame(layout.expert.x, layout.expert.y, layout.expert.w);
     }
 
     void generate()
     {
         prompt.dismissKeyboard();
+        expert.dismissKeyboard();
 
+        auto settings = expert.getSettings();
         auto request = SA3Pipeline::Request {};
         request.prompt = prompt.getText();
-        request.seconds = phoneSeconds;
-        request.samplerSteps = phoneSamplerSteps;
+        request.seconds = settings.seconds;
+        request.samplerSteps = settings.samplerSteps;
+        request.seed = settings.randomSeed ? randomSeed() : settings.seed;
+
+        if (!settings.conditioningMatchesLength)
+            request.conditioningSeconds = settings.conditioningSeconds;
+
+        expert.showSeed(request.seed);
+        controls.setSettings(describe(request));
 
         player.stop();
         started = Clock::now();
@@ -272,6 +374,9 @@ struct StableAudioApp
             || (status.stage == Stage::Failed && wasEverReady));
         wasEverReady = wasEverReady || status.stage == Stage::Ready;
         refreshStatus();
+
+        if (status.stage == Stage::Ready && std::exchange(autorun, std::nullopt))
+            generate();
     }
 
     void finished(const Result& result)
@@ -309,11 +414,13 @@ struct StableAudioApp
     Controls controls;
     Graphics::Window window {root};
     PromptField prompt {root, "lofi house loop"};
+    ExpertPanel expert {root, ExpertSettings {}};
 
     AudioPlayer player;
     FilePath wav;
     Status latest;
     bool wasEverReady = false;
+    std::optional<ExpertSettings> autorun = autorunSettings();
     Clock::time_point started = Clock::now();
 
     Generator generator;
