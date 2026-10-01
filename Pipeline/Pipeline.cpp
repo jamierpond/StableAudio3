@@ -132,17 +132,21 @@ SA3Codec::StereoWaveform
                 latentLength,
                 request.seconds);
 
+    if (request.conditioningSeconds.has_value())
+        std::printf("Conditioned on %.2fs\n", request.secondsTotal());
+
     start = Clock::now();
 
     auto latent =
         SA3Sampler::pingpongSample(*weights,
                                    promptEncoding->embeddings,
                                    latentLength,
-                                   request.seconds,
+                                   request.secondsTotal(),
                                    request.samplerSteps,
                                    SA3Sampler::randomNoiseSource(request.seed),
                                    device,
-                                   request.onStep);
+                                   request.onStep,
+                                   request.probe);
 
     std::printf("Sampling took %.2fs\n", secondsSince(start));
 

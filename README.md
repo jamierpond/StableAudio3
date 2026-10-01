@@ -11,8 +11,10 @@ build/StableAudio3 --model small --prompt "lofi house loop" \
 ```
 
 Flags: `--model small|medium` (default `small`), `--prompt`, `--seconds`,
-`--seed`, `--samplerSteps` (default 8), `--output`, and `--fetch-only`, which
-fetches the model's checkpoints and exits. More `--samplerSteps` trades
+`--secondsTotal` (the length the model is told, its `seconds_total`
+conditioning; defaults to `--seconds`), `--seed` (a number, or `random`, which
+prints the one it picked), `--samplerSteps` (default 8), `--output`, and
+`--fetch-only`, which fetches the model's checkpoints and exits. More `--samplerSteps` trades
 time for quality; the medium model at 50 steps makes 30 s in about 10 s on an
 M5 Max.
 

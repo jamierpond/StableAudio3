@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <optional>
+#include <random>
 #include <string>
 
 using namespace eacp;
@@ -22,6 +23,7 @@ struct Options
     std::string prompt = "lofi house loop";
     float seconds = 8.f;
     std::string output = "stable-audio-3-output.wav";
+    std::optional<float> secondsTotal;
     std::uint64_t seed = 42;
     int samplerSteps = 8;
     std::string model = "small";
@@ -35,6 +37,16 @@ using Clock = std::chrono::steady_clock;
 double secondsSince(Clock::time_point start)
 {
     return std::chrono::duration<double> {Clock::now() - start}.count();
+}
+
+std::uint64_t parseSeed(const std::string& text)
+{
+    if (text != "random")
+        return (std::uint64_t) std::stoull(text);
+
+    auto seed = std::random_device {}() % 1000000000u;
+    std::printf("Seed: %u\n", seed);
+    return seed;
 }
 
 Options parseOptions(int argc, char** argv)
@@ -52,8 +64,10 @@ Options parseOptions(int argc, char** argv)
             options.seconds = std::stof(argv[++i]);
         else if (flag == "--output" && hasValue)
             options.output = argv[++i];
+        else if (flag == "--secondsTotal" && hasValue)
+            options.secondsTotal = std::stof(argv[++i]);
         else if (flag == "--seed" && hasValue)
-            options.seed = (std::uint64_t) std::stoull(argv[++i]);
+            options.seed = parseSeed(argv[++i]);
         else if (flag == "--samplerSteps" && hasValue)
             options.samplerSteps = std::atoi(argv[++i]);
         else if (flag == "--model" && hasValue)
@@ -169,6 +183,7 @@ int main(int argc, char** argv)
     auto request = SA3Pipeline::Request {};
     request.prompt = options.prompt;
     request.seconds = options.seconds;
+    request.conditioningSeconds = options.secondsTotal;
     request.seed = options.seed;
     request.samplerSteps = options.samplerSteps;
     request.releaseAsItGoes = options.repeat == 0;
@@ -181,7 +196,7 @@ int main(int argc, char** argv)
             printStepProfile(weights,
                              crossAttnContext,
                              latentLength,
-                             options.seconds,
+                             request.secondsTotal(),
                              options.seed,
                              device);
         };
@@ -226,7 +241,7 @@ int main(int argc, char** argv)
             SA3Sampler::pingpongSample(*model->weights,
                                        repeatEncoding->embeddings,
                                        latentLength,
-                                       options.seconds,
+                                       request.secondsTotal(),
                                        options.samplerSteps,
                                        SA3Sampler::randomNoiseSource(options.seed),
                                        device);

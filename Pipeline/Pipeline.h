@@ -61,12 +61,21 @@ struct Request
     std::uint64_t seed = 42;
     int samplerSteps = 8;
 
+    // The length the DiT is told the audio is (its seconds_total global
+    // conditioning, clamped to 0..384). Unset, it is seconds. Asking for less
+    // than is generated makes the model end the music early and fill the
+    // rest; more makes the window a slice of a longer piece.
+    std::optional<float> conditioningSeconds;
+
+    float secondsTotal() const { return conditioningSeconds.value_or(seconds); }
+
     // Drops the text encoder once the prompt is encoded and the DiT once
     // sampling is done, for a process that generates once.
     bool releaseAsItGoes = false;
 
     std::function<void()> afterEncoding = [] {};
     SA3Sampler::StepCallback onStep = [](int, int) {};
+    SA3Sampler::StepProbe probe;
     AfterSampling afterSampling =
         [](const SA3DiT::Weights&, const ML::Tensor&, int) {};
 };
