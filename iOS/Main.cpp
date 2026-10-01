@@ -80,7 +80,7 @@ std::optional<ExpertSettings> autorunSettings()
 {
     auto* text = std::getenv("SA3_AUTORUN");
 
-    if (text == nullptr)
+    if (text == nullptr || *text == 0)
         return {};
 
     auto settings = ExpertSettings {};
