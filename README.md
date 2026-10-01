@@ -1,16 +1,35 @@
 # StableAudio3
 
-Stable Audio 3 text-to-audio inference on eacp's GPU/ML stack.
+Stable Audio 3 text-to-audio inference on
+[eacp](https://github.com/eyalamirmusic/eacp)'s GPU/ML stack.
 
 ```bash
-cmake --build build --target StableAudio3
-build/Apps/GPU/StableAudio3/StableAudio3 --model small --prompt "lofi house loop" \
+cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DEACP_UNITY_BUILD=OFF
+cmake --build build
+build/StableAudio3 --model small --prompt "lofi house loop" \
       --seconds 8 --seed 42 --output out.wav
 ```
 
 Flags: `--model small|medium` (default `small`), `--prompt`, `--seconds`,
 `--seed`, `--samplerSteps` (default 8), `--output`, and `--fetch-only`, which
-fetches the model's checkpoints and exits.
+fetches the model's checkpoints and exits. More `--samplerSteps` trades
+time for quality; the medium model at 50 steps makes 30 s in about 10 s on an
+M5 Max.
+
+## eacp
+
+eacp is fetched by CPM at configure time (`CMake/Findeacp.cmake`), from the
+`jp/stable-audio-infrence` branch of `jamierpond/eacp` until that work merges
+upstream. To build against a local eacp checkout instead, pass
+`-DCPM_eacp_SOURCE=$HOME/eacp`:
+
+```bash
+cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DEACP_UNITY_BUILD=OFF \
+      -DCPM_eacp_SOURCE=$HOME/eacp
+```
+
+Use `$HOME`, not `~`: CMake does not expand `~`, and a quoted `~` silently
+configures against a path that does not exist.
 
 ## Checkpoints
 
@@ -45,9 +64,9 @@ The SA3 test targets (`SA3Codec*`, `SA3DiT*`, `SA3Sampler*`,
 Run the app once per model first; for the `SA3CodecSameL*` tests, put SAME-L's
 `model.safetensors` in `SA3Checkpoints::directory(SA3Checkpoints::sameL)`.
 
-They are registered with ctest like every other suite (`ctest --test-dir build
--R SA3`), so CI runs them too. A case whose checkpoint is not cached prints
-`skipped: checkpoint not cached (<path>)` and passes; the suites that need no
+They are registered with ctest (`ctest --test-dir build -R SA3`). A case whose
+checkpoint is not cached prints `skipped: checkpoint not cached (<path>)` and
+passes; the suites that need no
 checkpoint (`SA3CodecFastTests`, `SA3CodecPatchedPretransformGoldenTests`,
 `SA3DiTUnitTests`, `SA3SamplerFastTests`) run everywhere.
 `EACP_REQUIRE_CHECKPOINTS=1` turns every skip into a failure, for a machine
