@@ -64,7 +64,8 @@ touched again.
 `iOS/` is a small app, `StableAudio3iOS`, that runs the small model on the
 phone: type a prompt, tap Generate, and it samples 8 s at 8 steps, plays the
 result and draws its waveform. While the model loads or works, the space the
-waveform takes shows a loader drawn from the forward pass itself (below).
+waveform takes is a plain panel with a progress bar under it; the backdrop
+renders only when what it shows changes, so it leaves the GPU to the model.
 
 **Expert** under the prompt opens every knob the model has: sampler steps
 (1-50), length (1-30 s), the length the model is told (its `seconds_total`
@@ -103,55 +104,10 @@ The checkpoint ships inside the bundle, so the app is 3.2 GB. The build copies
 the three files from this Mac's download cache into
 `StableAudio3iOS.app/huggingface/stabilityai--stable-audio-3-small-music/<revision>/`,
 the same layout as the cache, and `SA3Checkpoints::fetch` takes a file from the
-app's resources before it fetches anything. Configure fails, naming the path,
-until the cache has them: run `build/StableAudio3 --model small --fetch-only`
-first, or point `SA3_SMALL_CHECKPOINT_DIR` at a copy. The copy is `cp -c`, an
+app's resources before it fetches anything. Configure downloads any file the
+cache is missing, with the same Hugging Face token the desktop app uses, or
+point `SA3_SMALL_CHECKPOINT_DIR` at a copy. The copy is `cp -c`, an
 APFS clone, so it costs no time or disk. Never commit the weights.
-
-### The loader
-
-The loader is Shadertoy's "Octgrams" (`iOS/Reference/octgrams.glsl`, kept
-verbatim) ported to eacp's shader EDSL (`OctgramsShader` in `iOS/Backdrop.cpp`)
-and rendered at half the screen's resolution, then stretched with linear
-filtering into a rounded rectangle. With `drive` at 0 it is the original;
-`SA3_OCTGRAMS_CHECK=<iTime>` writes one frame of it to the app's cache
-directory, and `iOS/Reference/octgrams.py` (a numpy transcription of the GLSL)
-renders the same frame for comparison. At 543x702 and `iTime` 10, 99.8% of
-pixels match within 2/255 and the worst is 26/255 on 0.01% of them, where
-float rounding over 99 march steps lands on a different side of a box edge.
-
-The port's adaptations, none of which changes a value: GLSL's in-place swizzle
-writes (`pos.y += ...`, `pos.xy *= rot(...)`) rebuild the vector, since an EDSL
-value has no place to write into; the `for (int i ...)` loop is `loop()` over an
-int `var` incremented at the end of the body; `gTime` is a `var` reassigned in
-the loop as in the original; `mat2` is `float2x2` from the same columns, with
-the same row-vector product; `map()`'s and `box_set()`'s unused `iTime`
-argument is kept; the three dead statements at the end of `box()` are kept and
-dropped by the emitter, as a GLSL compiler drops them; `iResolution` is the
-loader texture's size and `fragCoord` is `uv * iResolution`. The alpha is
-written as the original writes it and ignored, as Shadertoy ignores it.
-
-The model comes in through `ForwardProbe`, an `SA3Sampler::StepProbe`. After
-each transformer block it records two small reductions into the step's own
-pass (`MeanSquareColumnsKernel`, `MeanOfRunsKernel`): one float per block, the
-hidden state's mean square, into a buffer the main thread reads while the GPU
-writes it, so the loader sees blocks finish inside a step rather than after
-it. After each step it reduces the model's clean-latent estimate and the next
-latent to their per-channel mean squares, 512 floats read back once the step
-has finished. Sampling 8 s at 8 steps in the simulator takes 0.46-0.47 s
-without the probe and 0.48-0.57 s with it.
-
-| Shader input | Model quantity |
-|---|---|
-| `drive` | 1 while a generation has sampler data, easing to 0 otherwise; 0 is the bare original |
-| march step `i`'s weight on `ac` | the activation of transformer block `floor(i * depth / 99)`: the hidden state's mean square after that block, log-scaled between the step's quietest and loudest block. Blocks this step has reached are at full weight, the rest at 0.45 of the previous step's, so a bright front sweeps through the march as the DiT works down its layers |
-| `iTime` speed | the activation of the last block finished: from 0.35x to 3.35x wall time |
-| `p` warp and the `ac` tint | the per-channel energy of the clean-latent estimate (256 channels), sampled by the angle of `p`: radial warp of up to ±18% and a blue-to-amber tint per direction |
-| box scale (`1.5` in `2. - abs(sin(gTime * .4)) * 1.5`) | the RMS of the latent the next step starts from: `1 + 1.5 * (rms - 1)`, clamped to 0.5-1.1 |
-| base colour | the timestep: the original's blue base fades to amber as the timestep goes from 1 to 0 |
-
-Each term is `mix(original, model term, drive)`. Different prompts and seeds
-differ visibly at the same step, mostly through the channel energies.
 
 The app prints the process's `phys_footprint` (what jetsam judges) after each
 stage and shows the latest under the status line.

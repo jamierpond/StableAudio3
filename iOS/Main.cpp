@@ -435,9 +435,8 @@ struct StableAudioApp
         refreshPlayback();
     }
 
-    ForwardProbe probe;
     Root root;
-    Backdrop backdrop {probe};
+    Backdrop backdrop;
     Controls controls;
     Graphics::Window window {root};
     PromptField prompt {root, "lofi house loop"};
@@ -450,7 +449,7 @@ struct StableAudioApp
     std::optional<Autorun> autorun = autorunSettings();
     Clock::time_point started = Clock::now();
 
-    Generator generator {probe};
+    Generator generator;
     Threads::Timer timer {[this] { tick(); }, 20};
 };
 
