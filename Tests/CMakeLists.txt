@@ -6,14 +6,15 @@ add_subdirectory(DiT)
 add_subdirectory(Sampler)
 
 # Every kernel the app builds, emitted in all three dialects and compared with
-# the text under ShaderGolden/, as Tests/GPU's ShaderGoldenTests does for the
-# library. Device-free, so it runs on every lane that builds the app.
+# the text under ShaderGolden/. Device-free, so it runs on every lane that builds the app.
 nano_add_executable(SA3ShaderGoldenTests
         SOURCES
             ShaderGoldenTests.cpp
         TARGETS eacp-sa3-codec eacp-sa3-dit eacp-sa3-sampler eacp-sa3-text-encoder)
 
+# ShaderGolden.h is this repo's; CodegenCommon.h under it is still eacp's.
 target_include_directories(SA3ShaderGoldenTests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
         ${eacp_SOURCE_DIR}/Tests/GPU)
 
 target_compile_definitions(SA3ShaderGoldenTests PRIVATE
