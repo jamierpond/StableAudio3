@@ -1,5 +1,6 @@
 #include "Sampler.h"
 
+#include <eacp/GPU/Buffer/BufferPool.h>
 #include <eacp/GPU/Codegen/KernelCache.h>
 #include <eacp/GPU/CommandBuffer/CommandBuffer.h>
 #include <eacp/GPU/Frame/ComputePass.h>
@@ -50,6 +51,14 @@ Tensor pingpongSampleWithModel(const ModelForward& model,
                                const StepCallback& onStep,
                                const StepProbe& probe)
 {
+#if defined(_WIN32)
+    // Medium's step temporaries exceed the normal 2 GiB idle cache. Reusing
+    // that working set avoids thousands of CreateCommittedResource calls per
+    // step on D3D12. The scope restores the idle budget and remains capped at
+    // a quarter of the device's memory budget on smaller cards.
+    auto scratchBudget =
+        BufferPool::of(device).keepUnusedUpTo(8ll * 1024 * 1024 * 1024);
+#endif
     auto x = uploadNoise(noiseSource, latentRows, latentColumns, device);
 
     for (auto i = 0; i < steps; ++i)
